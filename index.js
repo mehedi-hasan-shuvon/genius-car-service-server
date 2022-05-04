@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const jwt = require('jsonwebtoken');
 const res = require('express/lib/response');
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 require('dotenv').config();
@@ -14,6 +15,23 @@ app.use(express.json());
 
 //password: 2PbZzjdnTMa0qVBS
 
+function verifyJWT(req, res, next) {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+        return res.status(401).send({ message: 'unauthorized access' });
+    }
+    const token = authHeader.split(' ')[1];
+    jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
+        if (err) {
+            return res.status(403).send({ message: 'Forbidden access' });
+        }
+        // console.log('decoded', decoded);
+        req.decoded = decoded;
+        next();
+    })
+    // console.log('inside verifyJWT', authHeader);
+
+}
 
 
 var uri = `mongodb://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0-shard-00-00.cyc0z.mongodb.net:27017,cluster0-shard-00-01.cyc0z.mongodb.net:27017,cluster0-shard-00-02.cyc0z.mongodb.net:27017/myFirstDatabase?ssl=true&replicaSet=atlas-dupsah-shard-0&authSource=admin&retryWrites=true&w=majority`;
@@ -24,6 +42,15 @@ async function run() {
         await client.connect();
         const serviceCollection = client.db('geniusCar').collection('service');
         const orderCollection = client.db('geniusCar').collection('order');
+
+        //AUTH
+        app.post('/login', async (req, res) => {
+            const user = req.body;
+            const accessToken = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, {
+                expiresIn: '1d'
+            });
+            res.send({ accessToken });
+        });
 
 
         app.get('/service', async (req, res) => {
@@ -65,13 +92,18 @@ async function run() {
         });
 
         //order showing api
-        app.get('/order', async (req, res) => {
+        app.get('/order', verifyJWT, async (req, res) => {
+            const decodedEmail = req.decoded.email;
             const email = req.query.email;
             // console.log(email);
-            const query = { email: email };
-            const cursor = orderCollection.find(query);
-            const orders = await cursor.toArray();
-            res.send(orders);
+            if (email === decodedEmail) {
+                const query = { email: email };
+                const cursor = orderCollection.find(query);
+                const orders = await cursor.toArray();
+                res.send(orders);
+            } else {
+                res.status(403).send({ message: 'forbidden access' })
+            }
         });
 
 
